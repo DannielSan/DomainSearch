@@ -12,123 +12,159 @@ def remove_accents(input_str):
 
 async def hunt_emails_on_web(domain: str):
     """
-    Estratégia Flexível:
-    1. Busca ampla no Google (sem aspas rígidas).
-    2. Espera inteligente pelos resultados.
-    3. Captura robusta de links.
+    Estratégia Deep Harvest (Força Bruta V2):
+    1. Queries Globais (sem restrição de BR).
+    2. Filtragem Ativa de Lixo (jobs, company, pulse).
+    3. Parser Tolerante a Falhas.
     """
     clean_domain = domain.replace("http://", "").replace("https://", "").replace("www.", "").split("/")[0]
-    # Remove .com.br para pegar o nome "cru" (ex: opentreinamentos)
-    company_name_guess = clean_domain.split('.')[0]
+    company_raw = clean_domain.split('.')[0] # ex: opentreinamentos
+    
+    # --- LISTA DE TENTATIVAS DE BUSCA ---
+    # Removido "br." para pegar perfis globais e evitar filtro excessivo
+    search_queries = [
+        f'site:linkedin.com/in/ "{clean_domain}"',       # Domínio exato no perfil
+        f'site:linkedin.com/in/ "{company_raw}"',        # Nome da empresa (aspas)
+        f'site:linkedin.com/in/ {company_raw} -intitle:jobs -intitle:company', # Nome solto + filtros
+        f'"{company_raw}" site:linkedin.com/in/ email'    # Tentativa de achar quem expõe email
+    ]
     
     found_leads = []
-    seen_emails = set()
+    seen_keys = set() 
 
     # --- 1. Genéricos (Base de segurança) ---
     common_prefixes = ["contato", "comercial", "financeiro", "rh", "vendas", "adm", "suporte", "diretoria"]
     for prefix in common_prefixes:
         email = f"{prefix}@{clean_domain}"
-        found_leads.append({
-            "name": prefix.capitalize(),
-            "email": email,
-            "linkedin": None,
-            "role": "Departamento"
-        })
-        seen_emails.add(email)
+        key = email
+        if key not in seen_keys:
+            found_leads.append({
+                "name": prefix.capitalize(),
+                "email": email,
+                "linkedin": None,
+                "role": "Departamento"
+            })
+            seen_keys.add(key)
 
-    # --- 2. Busca no Google (Modo Visual) ---
+    # --- 2. Busca Profunda no Google ---
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False) 
+        browser = await p.chromium.launch(headless=False) # Mantenha False para debug visual se necessário
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
 
-        print(f"🕵️‍♂️ Buscando funcionários da '{company_name_guess}' no Google...")
+        print(f"🕵️‍♂️ Iniciando Varredura Profunda V2 para: {clean_domain}")
 
-        try:
-            # MUDANÇA 1: Removemos as aspas do nome da empresa para o Google achar variações (Open Treinamentos)
-            # Query: site:linkedin.com/in/ opentreinamentos "Salvador" (opcional, ajuda a filtrar)
-            query = f'site:linkedin.com/in/ {company_name_guess}'
+        for query in search_queries:
+            # Se já temos uma boa quantidade de leads reais (ex: 15), pula o resto
+            real_people = [l for l in found_leads if l['linkedin']]
+            if len(real_people) >= 15:
+                break
+
+            print(f"   ↳ Tentando query: {query}")
             
-            encoded_query = urllib.parse.quote(query)
-            # Adicionei &num=50 para pegar mais resultados de uma vez
-            google_url = f"https://www.google.com/search?q={encoded_query}&num=50&hl=pt-BR"
-            
-            await page.goto(google_url, timeout=30000)
-            
-            # MUDANÇA 2: Espera explícita pelo container de resultados
             try:
-                await page.wait_for_selector("#search", timeout=10000)
-            except:
-                print("⚠️ Demorou para carregar os resultados ou caiu em Captcha.")
-            
-            # Pequena pausa humana
-            await asyncio.sleep(2)
+                encoded_query = urllib.parse.quote(query)
+                # num=100 para pegar máximo possível por página
+                google_url = f"https://www.google.com/search?q={encoded_query}&num=100&hl=pt-BR"
+                
+                await page.goto(google_url, timeout=30000)
+                await asyncio.sleep(3 + (len(found_leads) * 0.1)) # Delay dinâmico leve
 
-            # MUDANÇA 3: Pega TODOS os links da área de busca, não importa a estrutura
-            # O seletor #search a busca apenas dentro dos resultados reais (ignora anúncios as vezes)
-            linkedin_links = await page.locator("#search a[href*='linkedin.com/in/']").all()
-            
-            print(f"🔎 O Google retornou {len(linkedin_links)} perfis brutos.")
+                # Check Captcha
+                if await page.locator("text=recaptcha").count() > 0:
+                    print("⚠️ CAPTCHA! Resolva manualmente...")
+                    while await page.locator("text=recaptcha").count() > 0:
+                        await asyncio.sleep(1)
+                    await asyncio.sleep(2)
 
-            for link in linkedin_links:
-                try:
-                    href = await link.get_attribute("href")
-                    title = await link.inner_text()
-                    
-                    if not title or not href:
-                        continue
+                # Coletar Links
+                all_links = await page.locator("a").all()
+                extracted_count = 0
+                
+                for link in all_links:
+                    try:
+                        href = await link.get_attribute("href")
+                        if not href or "linkedin.com/in/" not in href:
+                            continue
 
-                    # Limpeza clássica do título
-                    title = title.split(" - LinkedIn")[0].split(" | LinkedIn")[0]
-                    
-                    # Ignora links de "Vagas", "Empresa" ou "Pulse"
-                    if "/jobs/" in href or "/company/" in href or "/pulse/" in href:
-                        continue
+                        # Filtros de URL suja
+                        if any(x in href for x in ["/jobs/", "/company/", "/pulse/", "/dir/", "/learning/", "/posts/"]):
+                            continue
 
-                    # Tenta separar Nome e Cargo
-                    # Ex: "Soraya Sá - Diretora Comercial"
-                    if "-" in title:
-                        parts = title.split("-")
-                        name_raw = parts[0].strip()
-                        role_raw = parts[1].strip() if len(parts) > 1 else "Funcionário"
-                    else:
-                        name_raw = title.strip()
+                        title = await link.inner_text()
+                        if not title: continue
+
+                        # Limpeza do Título
+                        # Google costuma retornar: "Nome Sobrenome - Cargo - Empresa | LinkedIn"
+                        # Ou: "Nome Sobrenome | LinkedIn"
+                        clean_title = title
+                        for suffix in [" - LinkedIn", " | LinkedIn", " | LinkedIn Brasil"]:
+                            clean_title = clean_title.split(suffix)[0]
+                        clean_title = clean_title.replace("...", "").strip()
+
+                        # Filtros de Título sujo (termos genéricos que aparecem na busca)
+                        junk_terms = ["perfil", "login", "cadastre-se", "vagas", "pessoas também viram", "outros perfis", "traduzir esta página"]
+                        if any(term in clean_title.lower() for term in junk_terms):
+                            continue
+
+                        # Parser de Nome e Cargo
+                        # Tenta quebrar por separadores comuns
+                        separators = [" - ", " – ", " | ", ","]
+                        name_raw = clean_title
                         role_raw = "Funcionário"
 
-                    # Filtro final de lixo
-                    if "perfil" in name_raw.lower() or "linkedin" in name_raw.lower():
-                        continue
+                        found_sep = False
+                        for sep in separators:
+                            if sep in clean_title:
+                                parts = clean_title.split(sep)
+                                name_raw = parts[0].strip()
+                                # O resto é cargo/empresa
+                                role_full = parts[1].strip()
+                                # Tenta limpar empresa do cargo (ex: "Gerente na Open")
+                                role_raw = role_full.split(" na ")[0].split(" da ")[0].split(" at ")[0].strip()
+                                found_sep = True
+                                break
+                        
+                        # Se não achou separador, assume que o título inteiro é o nome (comum em perfis sem cargo no título)
+                        
+                        # Validação de Nome (Mínimo 2 partes, sem números)
+                        if len(name_raw.split()) < 2 or any(char.isdigit() for char in name_raw):
+                            continue
 
-                    # Gera o e-mail
-                    name_parts = name_raw.split(" ")
-                    if len(name_parts) >= 1:
-                        first_name = remove_accents(name_parts[0].lower())
-                        last_name = remove_accents(name_parts[-1].lower()) if len(name_parts) > 1 else ""
+                        # Geração de E-mail
+                        name_parts = name_raw.split()
+                        first = remove_accents(name_parts[0].lower())
+                        last = remove_accents(name_parts[-1].lower()) # Pega o último sobrenome para garantir
                         
-                        # Gera e-mail: nome.sobrenome@dominio
-                        if last_name:
-                            generated_email = f"{first_name}.{last_name}@{clean_domain}"
-                        else:
-                            generated_email = f"{first_name}@{clean_domain}"
+                        # Estratégia: primeiro.ultimo
+                        generated_email = f"{first}.{last}@{clean_domain}"
                         
-                        if generated_email not in seen_emails:
-                            print(f"   👤 Encontrado: {name_raw}")
+                        # Deduplicação baseada no LinkedIn (mais confiável que email gerado)
+                        if href not in seen_keys:
+                            print(f"      👤 Capturado: {name_raw} -> {role_raw}")
                             found_leads.append({
                                 "name": name_raw,
                                 "email": generated_email,
                                 "linkedin": href,
                                 "role": role_raw
                             })
-                            seen_emails.add(generated_email)
+                            seen_keys.add(href)
+                            seen_keys.add(generated_email) # Evita gerar o mesmo email para pessoas diferentes (colisão simples)
+                            extracted_count += 1
+                            
+                    except Exception as e:
+                        # print(f"Erro item: {e}")
+                        continue
 
-                except Exception as e:
-                    continue
+                print(f"      ✅ Extraídos nesta página: {extracted_count}")
 
-        except Exception as e:
-            print(f"⚠️ Erro na busca: {e}")
+            except Exception as e:
+                print(f"⚠️ Erro query '{query}': {e}")
+                continue
 
         await browser.close()
 
+    print(f"🏁 Varredura finalizada. Total de leads: {len(found_leads)}")
     return found_leads
