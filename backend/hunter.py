@@ -59,7 +59,7 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            headless=False,
+            headless=True, # MODO INVISÍVEL (Solicitado pelo usuário)
             args=["--disable-blink-features=AutomationControlled"]
         )
         context = await browser.new_context(
@@ -163,8 +163,6 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
         if ".br" in domain:
              search_queries.insert(1, f'site:linkedin.com/in/ "{target_name}" "Brasil"')
 
-        # Se o nome detectado for muito diferente do fallback, adiciona o fallback também
-
         bing_success = False
 
         for query in search_queries:
@@ -241,11 +239,10 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
         if len([l for l in found_leads if l['linkedin']]) < 3:
             print(f"\n⚠️ Bing retornou poucos resultados ({len([l for l in found_leads if l['linkedin']])}). Tentando Google (Fallback)...")
             try:
-                # Usa query MAIS ESPECÍFICA no Google
-                # Tenta: "NomeEmpresa" "dominio.com" site:linkedin.com/in/
+                # Usa query BROAD no Google com num=100 para pegar TUDO
                 query = f'site:linkedin.com/in/ "{target_name}" "{clean_domain}" -intitle:jobs'
                 encoded_query = urllib.parse.quote(query)
-                google_url = f"https://www.google.com/search?q={encoded_query}&num=50&hl=pt-BR"
+                google_url = f"https://www.google.com/search?q={encoded_query}&num=100&hl=pt-BR"
                 
                 await page.goto(google_url, timeout=20000)
                 await asyncio.sleep(2)
@@ -279,7 +276,44 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                                 seen_emails.add(email)
                                 count_valid_google += 1
                     except: continue
-                print(f"      ✅ Leads Google: {count_valid_google}")
+                print(f"      ✅ Leads Google (Round 1): {count_valid_google}")
+
+                # Se ainda achou pouco (menos de 5), tenta mais uma query com "Cargo"
+                if len([l for l in found_leads if l['linkedin']]) < 5:
+                    print("      🔎 Aprofundando busca no Google (Round 2)...")
+                    # Query focado em cargos comuns
+                    query2 = f'site:linkedin.com/in/ "{target_name}" (gerente OR diretor OR analista OR coordenador OR supervisor)'
+                    encoded_query2 = urllib.parse.quote(query2)
+                    google_url2 = f"https://www.google.com/search?q={encoded_query2}&num=50&hl=pt-BR"
+                    
+                    await page.goto(google_url2, timeout=20000)
+                    await asyncio.sleep(2)
+                    
+                    google_links2 = await page.locator("a").all()
+                    for link in google_links2:
+                        try:
+                            href = await link.get_attribute("href")
+                            if not href or "linkedin.com/in/" not in href: continue
+                            title = await link.inner_text()
+                            if not title: continue
+                            
+                            clean_title = title.split(" - LinkedIn")[0].split(" | LinkedIn")[0].replace("...", "").replace("Perfil profissional", "").replace("Perfil", "").strip()
+                            if any(x in clean_title.lower() for x in ["login", "vagas", "job"]): continue
+                            
+                            name_raw = clean_title.split(" - ")[0].split(" | ")[0].strip()
+                            if len(name_raw.split()) < 2: continue
+                            
+                            name_parts = name_raw.split()
+                            first = remove_accents(name_parts[0].lower())
+                            last = remove_accents(name_parts[-1].lower())
+                            email = f"{first}.{last}@{clean_domain}"
+                            
+                            if email not in seen_emails:
+                                if not any(term in email.lower() for term in BLACKLIST_TERMS):
+                                    print(f"      👤 Google Round 2: {name_raw}")
+                                    found_leads.append({"name": name_raw, "email": email, "linkedin": href, "role": "Detectado via Google"})
+                                    seen_emails.add(email)
+                        except: continue
 
             except Exception as e:
                 print(f"⚠️ Erro no Google Fallback: {e}")
