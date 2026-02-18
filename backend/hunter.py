@@ -151,15 +151,19 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
         # Decide qual nome usar
         target_name = real_company_name if real_company_name else company_name_fallback
         
+        # Estratégia de Queries (Mais específicas primeiro)
         search_queries = [
-            f'site:linkedin.com/in/ "{target_name}"',      # Nome real (ex: "Open Treinamentos")
-            f'{target_name} "email" site:linkedin.com/in/',
-            f'site:linkedin.com/in/ "{clean_domain}"',      # Fallback domínio
+            f'site:linkedin.com/in/ "{target_name}" "{clean_domain}"', # Nome + Domínio (Altíssima precisão)
+            f'site:linkedin.com/in/ "{target_name}" "Brasil"',         # Nome + País (Se for .br)
+            f'site:linkedin.com/in/ "{target_name}"',                  # Nome isolado (pode ser genérico)
+            f'site:linkedin.com/in/ "{clean_domain}"',                  # Domínio isolado
         ]
         
+        # Se for .br, prioriza buscas locais
+        if ".br" in domain:
+             search_queries.insert(1, f'site:linkedin.com/in/ "{target_name}" "Brasil"')
+
         # Se o nome detectado for muito diferente do fallback, adiciona o fallback também
-        if real_company_name and company_name_fallback.lower() not in real_company_name.lower():
-             search_queries.append(f'site:linkedin.com/in/ "{company_name_fallback}"')
 
         bing_success = False
 
@@ -232,14 +236,16 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                 print(f"      ⚠️ Erro no Bing: {e}")
                 continue
 
-        # --- FASE 3: GOOGLE FALLBACK (Se Bing falhar) ---
-        if not bing_success and len([l for l in found_leads if l['linkedin']]) == 0:
-            print("\n⚠️ Bing falhou. Tentando Google (Fallback)...")
+        # --- FASE 3: GOOGLE FALLBACK (Se Bing falhar ou trouxer poucos resultados) ---
+        # Se achou menos de 3 leads no Bing, tenta o Google para complementar
+        if len([l for l in found_leads if l['linkedin']]) < 3:
+            print(f"\n⚠️ Bing retornou poucos resultados ({len([l for l in found_leads if l['linkedin']])}). Tentando Google (Fallback)...")
             try:
-                # Usa query BROAD no Google com nome real
-                query = f'site:linkedin.com/in/ "{target_name}" -intitle:jobs'
+                # Usa query MAIS ESPECÍFICA no Google
+                # Tenta: "NomeEmpresa" "dominio.com" site:linkedin.com/in/
+                query = f'site:linkedin.com/in/ "{target_name}" "{clean_domain}" -intitle:jobs'
                 encoded_query = urllib.parse.quote(query)
-                google_url = f"https://www.google.com/search?q={encoded_query}&num=30&hl=pt-BR"
+                google_url = f"https://www.google.com/search?q={encoded_query}&num=50&hl=pt-BR"
                 
                 await page.goto(google_url, timeout=20000)
                 await asyncio.sleep(2)
