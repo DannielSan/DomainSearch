@@ -215,11 +215,13 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                         email_v1 = f"{first}.{last}@{clean_domain}"
                         
                         if email_v1 not in seen_emails:
-                            print(f"      👤 Bing Capturou: {name_raw} -> {role_raw}")
-                            found_leads.append({"name": name_raw, "email": email_v1, "linkedin": href, "role": role_raw})
-                            seen_emails.add(email_v1)
-                            count_valid += 1
-                            bing_success = True
+                            # Filter Blacklist
+                            if not any(term in email_v1.lower() for term in BLACKLIST_TERMS):
+                                print(f"      👤 Bing Capturou: {name_raw} -> {role_raw}")
+                                found_leads.append({"name": name_raw, "email": email_v1, "linkedin": href, "role": role_raw})
+                                seen_emails.add(email_v1)
+                                count_valid += 1
+                                bing_success = True
 
                     except Exception as e:
                         continue
@@ -264,10 +266,12 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                         email = f"{first}.{last}@{clean_domain}"
                         
                         if email not in seen_emails:
-                            print(f"      👤 Google Capturou: {name_raw}")
-                            found_leads.append({"name": name_raw, "email": email, "linkedin": href, "role": "Detectado via Google"})
-                            seen_emails.add(email)
-                            count_valid_google += 1
+                            # Filter Blacklist
+                            if not any(term in email.lower() for term in BLACKLIST_TERMS):
+                                print(f"      👤 Google Capturou: {name_raw}")
+                                found_leads.append({"name": name_raw, "email": email, "linkedin": href, "role": "Detectado via Google"})
+                                seen_emails.add(email)
+                                count_valid_google += 1
                     except: continue
                 print(f"      ✅ Leads Google: {count_valid_google}")
 
