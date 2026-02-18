@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('current-domain').innerText = domain;
 
     const btnScan = document.getElementById('btn-scan');
+    const btnSeeMore = document.getElementById('btn-see-more');
     const list = document.getElementById('results');
     const loading = document.getElementById('loading');
     const statusArea = document.getElementById('status-area');
@@ -35,7 +36,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (data.leads && data.leads.length > 0) {
                 statusArea.style.display = 'none';
 
-                data.leads.forEach(lead => {
+                // Mostra "Ver mais" se tiver leads
+                btnSeeMore.style.display = 'block';
+
+                // Renderiza APENAS os 5 primeiros no popup para não poluir
+                data.leads.slice(0, 5).forEach(lead => {
                     const li = document.createElement('li');
                     li.className = 'lead-item';
 
@@ -44,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     let bgBadge = lead.status === 'valid' ? '#dcfce7' : '#fef9c3';
                     let iconHtml = lead.status === 'valid' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>';
 
-                    // Botão do LinkedIn (só aparece se tiver link no banco)
+                    // Botão do LinkedIn
                     let linkedinBtn = lead.linkedin_url
                         ? `<a href="${lead.linkedin_url}" target="_blank" title="Abrir LinkedIn" style="color:#0077b5; margin-left:8px; font-size:14px; text-decoration:none;"><i class="fab fa-linkedin"></i></a>`
                         : '';
@@ -72,6 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 statusArea.style.display = 'block';
                 statusArea.innerHTML = `<p style="text-align:center; color:#64748b; font-size:12px;">Nenhum lead encontrado ainda.</p>`;
+                btnSeeMore.style.display = 'none';
             }
         } catch (error) {
             console.error("Erro:", error);
@@ -82,11 +88,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Carrega ao abrir
     loadLeads();
 
+    // Botão Ver Mais
+    btnSeeMore.addEventListener('click', () => {
+        chrome.tabs.create({ url: `http://127.0.0.1:8000/view/${domain}` });
+    });
+
     // Lógica do Botão de Busca
     btnScan.addEventListener('click', async () => {
         btnScan.disabled = true;
         btnScan.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Buscando...`;
         loading.style.display = 'block';
+        list.innerHTML = ''; // Limpa lista visualmente enquanto busca
+        btnSeeMore.style.display = 'none';
 
         try {
             await fetch('http://127.0.0.1:8000/api/scan', {
@@ -103,12 +116,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 attempts++;
                 await loadLeads();
 
-                // Se já achou mais que os genéricos (8) ou estourou tempo
-                if (list.children.length > 8 || attempts >= maxAttempts) {
-                    clearInterval(interval);
-                    btnScan.disabled = false;
-                    btnScan.innerHTML = `<i class="fas fa-search"></i> Buscar Novamente`;
-                    loading.style.display = 'none';
+                // Se já achou leads reais (que não sejam só os genéricos) ou estourou tempo
+                // Assumindo que genéricos são ~5, se tiver > 5 provavelmente achou algo
+                if (list.children.length > 0 || attempts >= maxAttempts) {
+                    if (attempts >= maxAttempts || list.children.length > 5) {
+                        clearInterval(interval);
+                        btnScan.disabled = false;
+                        btnScan.innerHTML = `<i class="fas fa-search"></i> Buscar Novamente`;
+                        loading.style.display = 'none';
+                    }
                 }
             }, 2000);
 

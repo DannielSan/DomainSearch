@@ -4,9 +4,11 @@ import asyncio
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from fastapi import FastAPI, Depends, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import List, Optional
 import models
 from database import engine, get_db
 from hunter import hunt_emails_on_web
@@ -103,6 +105,56 @@ def get_results(domain: str, db: Session = Depends(get_db)):
     company = db.query(models.Company).filter(models.Company.domain == domain).first()
     if not company: return {"status": "Não iniciado", "leads": []}
     return {"status": "Encontrado", "leads": company.leads}
+
+@app.get("/view/{domain}", response_class=HTMLResponse)
+def view_results(domain: str, db: Session = Depends(get_db)):
+    company = db.query(models.Company).filter(models.Company.domain == domain).first()
+    if not company: return "<h1>Empresa não encontrada. Faça uma busca primeiro.</h1>"
+
+    leads_html = ""
+    for lead in company.leads:
+        linkedin_link = f'<a href="{lead.linkedin_url}" target="_blank">LinkedIn</a>' if lead.linkedin_url else "-"
+        leads_html += f"""
+        <tr>
+            <td>{lead.first_name} {lead.last_name}</td>
+            <td>{lead.email}</td>
+            <td>{lead.job_title}</td>
+            <td>{linkedin_link}</td>
+            <td>{lead.confidence_score}%</td>
+        </tr>
+        """
+    
+    html_content = f"""
+    <html>
+        <head>
+            <title>Leads: {domain}</title>
+            <style>
+                body {{ font-family: sans-serif; padding: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+                tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                h1 {{ color: #333; }}
+                .btn {{ background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }}
+            </style>
+        </head>
+        <body>
+            <h1>Leads Encontrados: {domain}</h1>
+            <p><a href="#" onclick="window.close()" class="btn">Fechar</a></p>
+            <table>
+                <tr>
+                    <th>Nome</th>
+                    <th>Email</th>
+                    <th>Cargo</th>
+                    <th>LinkedIn</th>
+                    <th>Confiança</th>
+                </tr>
+                {leads_html}
+            </table>
+        </body>
+    </html>
+    """
+    return html_content
 
 @app.get("/")
 def home(): return {"status": "Online"}

@@ -11,6 +11,13 @@ def remove_accents(input_str):
     nfkd_form = unicodedata.normalize('NFKD', input_str)
     return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
 
+BLACKLIST_TERMS = [
+    "na.hora", "nas.horas", "na.semana", "no.mes", "no.ano", 
+    "em.portugues", "videos", "pesquisar", "resultados", "modo", 
+    "letra", "google", "bing", "yahoo", "duckduckgo", "search",
+    "mapas", "shopping", "imagens", "noticias", "livros", "voos", "financas"
+]
+
 def extract_emails_from_text(text: str, domain: str) -> Set[str]:
     """Regex para extrair e-mails de um texto cru"""
     if not text: return set()
@@ -26,7 +33,9 @@ def extract_emails_from_text(text: str, domain: str) -> Set[str]:
         
         if domain in email.lower():
             if not email.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.css', '.js', '.webp', '.svg', '.woff')):
-                valid_emails.add(email.lower())
+                # Filter Blacklist
+                if not any(term in email.lower() for term in BLACKLIST_TERMS):
+                    valid_emails.add(email.lower())
     return valid_emails
 
 # --- O ROBÔ ---
