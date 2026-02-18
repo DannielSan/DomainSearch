@@ -186,9 +186,9 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                         if not title: continue
                         
                         clean_title = title.split(" - LinkedIn")[0].split(" | LinkedIn")[0]
-                        clean_title = clean_title.replace("...", "").strip()
+                        clean_title = clean_title.replace("...", "").replace("Perfil profissional", "").replace("Perfil", "").strip()
 
-                        if any(x in clean_title.lower() for x in ["perfil", "login", "vagas", "job", "company", "linkedin"]): continue
+                        if any(x in clean_title.lower() for x in ["login", "vagas", "job", "company", "linkedin"]): continue
 
                         if len(clean_title.split()) < 2: continue
                         
@@ -254,8 +254,8 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                         title = await link.inner_text()
                         if not title: continue
                         
-                        clean_title = title.split(" - LinkedIn")[0].split(" | LinkedIn")[0].replace("...", "").strip()
-                        if any(x in clean_title.lower() for x in ["perfil", "login", "vagas", "job"]): continue
+                        clean_title = title.split(" - LinkedIn")[0].split(" | LinkedIn")[0].replace("...", "").replace("Perfil profissional", "").replace("Perfil", "").strip()
+                        if any(x in clean_title.lower() for x in ["login", "vagas", "job"]): continue
                         
                         name_raw = clean_title.split(" - ")[0].split(" | ")[0].strip()
                         if len(name_raw.split()) < 2: continue
