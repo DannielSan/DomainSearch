@@ -94,6 +94,32 @@
             color: #854d0e;
         }
 
+        .empty-state {
+            background: #eef2ff;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: left;
+            margin-top: 15px;
+            display: none;
+            /* Oculto por padrão */
+        }
+
+        .empty-state h3 {
+            color: #0f172a;
+            font-size: 14px;
+            margin: 0 0 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .empty-state p {
+            color: #334155;
+            font-size: 12px;
+            margin: 0;
+            line-height: 1.4;
+        }
+
         #loading {
             display: none;
             text-align: center;
@@ -111,6 +137,13 @@
         <div id="status-area">
             <p style="font-size: 13px; color: #64748b; text-align: center;">Clique para buscar e-mails</p>
         </div>
+
+        <div id="empty-state-box" class="empty-state">
+            <h3><i class="fas fa-search-minus" style="color: #6366f1;"></i> Clientes potenciais não encontrados</h3>
+            <p>Não há nenhum cliente potencial relacionado a esta empresa em nossa varredura. Tente pesquisar usando
+                outros métodos ou verifique o site manualmente.</p>
+        </div>
+
         <button id="btn-scan" class="btn-scan">🔍 Buscar E-mails</button>
         <div id="loading">Processando...</div>
     </div>

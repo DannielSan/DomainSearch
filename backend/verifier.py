@@ -23,7 +23,6 @@ def verify_email_realtime(email: str):
 
     # 3. Simulação de SMTP (Ping no Servidor)
     try:
-        # Conecta ao servidor com timeout curto (3s) para não travar a API
         server = smtplib.SMTP(timeout=3)
         server.set_debuglevel(0)
         
@@ -31,17 +30,27 @@ def verify_email_realtime(email: str):
         server.connect(mx_record, 25)
         server.helo('CheckMyEmail') 
         
-        # Simula envio
+        # --- CATCH-ALL DETECTOR ---
+        # Ping com e-mail garantidamente falso para ver se o servidor aceita tudo
+        fake_email = f"xjzqw91823_pingtest@{domain}"
         server.mail('test@example.com')
+        catchall_code, _ = server.rcpt(fake_email)
+        
+        is_catch_all = (catchall_code == 250)
+        
+        # --- TESTE REAL DO E-MAIL ALVO ---
+        server.mail('test@example.com') # Reseta correio
         code, message = server.rcpt(email)
         server.quit()
 
         if code == 250:
+            if is_catch_all:
+                return "risky" # É catch-all, então o "OK" não garante que a pessoa exista
             return "valid"
         elif code == 550:
             return "invalid"
         else:
-            return "risky" # Servidor respondeu algo estranho (Greylisting, etc)
+            return "risky" 
 
     except Exception:
-        return "risky" # Firewall ou bloqueio impediu o teste
+        return "risky"

@@ -151,22 +151,23 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
         # Decide qual nome usar
         target_name = real_company_name if real_company_name else company_name_fallback
         
-        # Estratégia de Queries (Mais específicas primeiro)
+        # Estratégia de Queries (Mais amplas para capturar empresas que os funcionários não colocam o .com.br)
         search_queries = [
-            f'site:linkedin.com/in/ "{target_name}" "{clean_domain}"', # Nome + Domínio (Altíssima precisão)
-            f'site:linkedin.com/in/ "{target_name}" "Brasil"',         # Nome + País (Se for .br)
-            f'site:linkedin.com/in/ "{target_name}"',                  # Nome isolado (pode ser genérico)
-            f'site:linkedin.com/in/ "{clean_domain}"',                  # Domínio isolado
+            f'site:linkedin.com/in/ "{target_name}"',                  # Nome solto (MUITO MAIS RESULTADOS)
+            f'site:linkedin.com/in/ "{target_name}" "Brasil"',         # Nome + País
+            f'site:linkedin.com/in/ "{target_name}" "{clean_domain}"', # Nome + Domínio
+            f'site:linkedin.com/in/ "{clean_domain}"',                 # Domínio isolado
         ]
         
-        # Se for .br, prioriza buscas locais
+        # Se for .br, prioriza buscas locais (move para primeiro)
         if ".br" in domain:
-             search_queries.insert(1, f'site:linkedin.com/in/ "{target_name}" "Brasil"')
+             search_queries.insert(0, f'site:linkedin.com/in/ "{target_name}" "Brasil"')
 
         bing_success = False
 
         for query in search_queries:
-            if len([l for l in found_leads if l['linkedin']]) >= 15: break
+            # Aumentando limite de paginação/leads provisórios para o limite extremo (100)
+            if len([l for l in found_leads if l['linkedin']]) >= 50: break
 
             print(f"   ↳ Bing Query: {query}")
             try:
@@ -214,16 +215,21 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                         first = remove_accents(name_parts[0].lower())
                         last = remove_accents(name_parts[-1].lower())
                         
+                        # Dobrando as chances de acerto gerando 2 padrões corporativos comuns
                         email_v1 = f"{first}.{last}@{clean_domain}"
+                        email_v2 = f"{first}@{clean_domain}"
                         
-                        if email_v1 not in seen_emails:
-                            # Filter Blacklist
-                            if not any(term in email_v1.lower() for term in BLACKLIST_TERMS):
-                                print(f"      👤 Bing Capturou: {name_raw} -> {role_raw}")
-                                found_leads.append({"name": name_raw, "email": email_v1, "linkedin": href, "role": role_raw})
-                                seen_emails.add(email_v1)
-                                count_valid += 1
-                                bing_success = True
+                        emails_to_try = [email_v1, email_v2]
+                        
+                        for em in emails_to_try:
+                            if em not in seen_emails:
+                                # Filter Blacklist
+                                if not any(term in em.lower() for term in BLACKLIST_TERMS):
+                                    print(f"      👤 Bing Capturou: {name_raw} -> Tentando: {em}")
+                                    found_leads.append({"name": name_raw, "email": em, "linkedin": href, "role": role_raw})
+                                    seen_emails.add(em)
+                                    count_valid += 1
+                                    bing_success = True
 
                     except Exception as e:
                         continue
@@ -234,13 +240,13 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                 print(f"      ⚠️ Erro no Bing: {e}")
                 continue
 
-        # --- FASE 3: GOOGLE FALLBACK (Se Bing falhar ou trouxer poucos resultados) ---
-        # Se achou menos de 3 leads no Bing, tenta o Google para complementar
-        if len([l for l in found_leads if l['linkedin']]) < 3:
-            print(f"\n⚠️ Bing retornou poucos resultados ({len([l for l in found_leads if l['linkedin']])}). Tentando Google (Fallback)...")
+        # --- FASE 3: GOOGLE FALLBACK (Muito mais agressivo) ---
+        # Se achou menos de 20 leads no Bing, solta o Google para complementar focado em volume
+        if len([l for l in found_leads if l['linkedin']]) < 20:
+            print(f"\n⚠️ Expandindo alcance com Google (Volume Máximo)...")
             try:
-                # Usa query BROAD no Google com num=100 para pegar TUDO
-                query = f'site:linkedin.com/in/ "{target_name}" "{clean_domain}" -intitle:jobs'
+                # Usa query BROAD no Google removendo o domínio exato obrigatório
+                query = f'site:linkedin.com/in/ "{target_name}" -intitle:jobs'
                 encoded_query = urllib.parse.quote(query)
                 google_url = f"https://www.google.com/search?q={encoded_query}&num=100&hl=pt-BR"
                 
@@ -266,15 +272,18 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                         name_parts = name_raw.split()
                         first = remove_accents(name_parts[0].lower())
                         last = remove_accents(name_parts[-1].lower())
-                        email = f"{first}.{last}@{clean_domain}"
                         
-                        if email not in seen_emails:
-                            # Filter Blacklist
-                            if not any(term in email.lower() for term in BLACKLIST_TERMS):
-                                print(f"      👤 Google Capturou: {name_raw}")
-                                found_leads.append({"name": name_raw, "email": email, "linkedin": href, "role": "Detectado via Google"})
-                                seen_emails.add(email)
-                                count_valid_google += 1
+                        em_v1 = f"{first}.{last}@{clean_domain}"
+                        em_v2 = f"{first}@{clean_domain}"
+                        
+                        for em in [em_v1, em_v2]:
+                            if em not in seen_emails:
+                                # Filter Blacklist
+                                if not any(term in em.lower() for term in BLACKLIST_TERMS):
+                                    print(f"      👤 Google Capturou: {name_raw} -> {em}")
+                                    found_leads.append({"name": name_raw, "email": em, "linkedin": href, "role": "Detectado via Google"})
+                                    seen_emails.add(em)
+                                    count_valid_google += 1
                     except: continue
                 print(f"      ✅ Leads Google (Round 1): {count_valid_google}")
 
@@ -306,13 +315,13 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
                             name_parts = name_raw.split()
                             first = remove_accents(name_parts[0].lower())
                             last = remove_accents(name_parts[-1].lower())
-                            email = f"{first}.{last}@{clean_domain}"
                             
-                            if email not in seen_emails:
-                                if not any(term in email.lower() for term in BLACKLIST_TERMS):
-                                    print(f"      👤 Google Round 2: {name_raw}")
-                                    found_leads.append({"name": name_raw, "email": email, "linkedin": href, "role": "Detectado via Google"})
-                                    seen_emails.add(email)
+                            for em in [f"{first}.{last}@{clean_domain}", f"{first}@{clean_domain}"]:
+                                if em not in seen_emails:
+                                    if not any(term in em.lower() for term in BLACKLIST_TERMS):
+                                        print(f"      👤 Google Round 2: {name_raw} -> {em}")
+                                        found_leads.append({"name": name_raw, "email": em, "linkedin": href, "role": "Detectado via Google"})
+                                        seen_emails.add(em)
                         except: continue
 
             except Exception as e:
@@ -320,12 +329,8 @@ async def hunt_emails_on_web(domain: str) -> List[Dict]:
 
         await browser.close()
 
-    # Fallback final (Genéricos) - SÓ SE NÃO ACHOU NADA MESMO
     if not found_leads:
-        print("⚠️ Nada encontrado. Inserindo genéricos básicos.")
-        common = ["contato", "adm", "comercial", "financeiro", "rh", "vendas"]
-        for c in common:
-            found_leads.append({"name": c.capitalize(), "email": f"{c}@{clean_domain}", "linkedin": None, "role": "Genérico"})
+        print("⚠️ Nada encontrado. Retornando vazio para exibição correta na UI.")
             
     print(f"🏁 [FIM] Varredura Completa. Total de Alvos: {len(found_leads)}")
     return found_leads

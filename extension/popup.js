@@ -28,13 +28,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Função para buscar e desenhar os leads
     async function loadLeads() {
         try {
-            const response = await fetch(`http://127.0.0.1:8000/api/results/${domain}`);
+            const response = await fetch(`http://127.0.0.1:8000/api/results/${domain}`, { credentials: "include" });
+
+            // Se retornar erro de autenticação, pedimos pro cara logar
+            if (response.status === 401 || response.status === 403 || response.url.includes('/login')) {
+                statusArea.style.display = 'block';
+                document.getElementById('empty-state-box').style.display = 'none';
+                statusArea.innerHTML = `<p style="text-align:center; color:#ef4444; font-size:12px;"><i class="fas fa-lock" style="margin-right:4px;"></i> Por favor, faça login no dashboard primeiro.</p>
+                                        <button onclick="window.open('http://127.0.0.1:8000/login', '_blank')" style="background:#4f46e5; color:white; border:none; padding:6px 12px; border-radius:4px; font-size:11px; cursor:pointer; margin-top:8px;">Fazer Login</button>`;
+                return;
+            }
+
             const data = await response.json();
 
             list.innerHTML = '';
+            const emptyBox = document.getElementById('empty-state-box');
+
+            if (data.status === "Não iniciado") {
+                statusArea.style.display = 'block';
+                emptyBox.style.display = 'none';
+                btnSeeMore.style.display = 'none';
+                return; // Para a execução aqui
+            }
 
             if (data.leads && data.leads.length > 0) {
                 statusArea.style.display = 'none';
+                emptyBox.style.display = 'none'; // Esconde caixa azul
 
                 // Mostra "Ver mais" se tiver leads
                 btnSeeMore.style.display = 'block';
@@ -75,12 +94,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                     list.appendChild(li);
                 });
             } else {
-                statusArea.style.display = 'block';
-                statusArea.innerHTML = `<p style="text-align:center; color:#64748b; font-size:12px;">Nenhum lead encontrado ainda.</p>`;
-                btnSeeMore.style.display = 'none';
+                // Se 0 leads MAS já terminou de escanear (is_scanning === false), mostra erro real
+                if (data.is_scanning === false) {
+                    statusArea.style.display = 'none';
+                    emptyBox.style.display = 'block';
+                    btnSeeMore.style.display = 'none';
+                } else {
+                    // Está escaneando e ainda não achou (polling): 
+                    // Garante que a caixa de vazio fique escondida enquanto busca
+                    statusArea.style.display = 'none';
+                    emptyBox.style.display = 'none';
+                }
             }
         } catch (error) {
             console.error("Erro:", error);
+            statusArea.style.display = 'block'; // Mostra de volta se der erro
+            document.getElementById('empty-state-box').style.display = 'none';
             statusArea.innerHTML = `<p style="text-align:center; color:#ef4444; font-size:12px;">Erro ao conectar API.</p>`;
         }
     }
@@ -104,6 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             await fetch('http://127.0.0.1:8000/api/scan', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ domain: domain })
             });
